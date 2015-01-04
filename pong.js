@@ -14,8 +14,15 @@
   // paddle
   var PADDLE_WIDTH = 11;
   var PADDLE_HEIGHT = 62;
-  var PADDLE_SPEED = 6;
+  var PADDLE_SPEED = 4;
   var PADDLE_COLOR = "#f6eb16";
+
+  // changes during game
+  var BALL_SPEED_INCREASE = 1.2;
+  var USER_HEIGHT_INCREASE = 1.1;
+  var USER_SPEED_INCREASE = 1.2;
+  var BALL_ANGLE_INCREASE = 1.4;
+  var BALL_ANGLE_DECREASE = 0.6;
 
   /////////////// GLOBAL VARIABLES ///////////////////
 
@@ -29,25 +36,28 @@
 
   ////////// PADDLE CONSTRUCTOR / FUNCTIONS //////////
 
-  function Paddle() {
-    this.dx = 0;
-    this.dy = 0;
-    this.speed = PADDLE_SPEED;
-  }
+  function Paddle() {}
 
   Paddle.prototype.reset = function(x, y) {
     this.x = x;
     this.y = y;
-  }
-
-  Paddle.prototype.move  = function() {
-    this.x += this.dx * this.speed;
-    this.y += this.dy * this.speed;
+    this.dx = 0;
+    this.dy = 0;
+    this.speed = PADDLE_SPEED;
+    this.height = PADDLE_HEIGHT;
+    this.width = PADDLE_WIDTH;
   }
 
   Paddle.prototype.draw = function() {
     ctx.fillStyle = PADDLE_COLOR;
-    ctx.fillRect(this.x, this.y, PADDLE_WIDTH, PADDLE_HEIGHT);   
+    ctx.fillRect(this.x, this.y, this.width, this.height);   
+  }
+
+  Paddle.prototype.within = function(x, y) {
+    return y > this.y &&
+           y < this.y + this.height &&
+           x > this.x &&
+           x < this.x + this.width;
   }
 
   /////////// USER PADDLE FUNCTIONS ///////////
@@ -55,27 +65,86 @@
   user = new Paddle();
 
   user.update = function() {
-    if (this.y > HEIGHT - PADDLE_HEIGHT) {
+    var next_x = this.x + this.dx * this.speed;
+    var next_y = this.y + this.dy * this.speed;
+
+    if (next_y > HEIGHT - this.height) {
       this.dy = 0;
-      this.y = HEIGHT - PADDLE_HEIGHT;
-    } else if (this.y < 0) {
+      this.y = HEIGHT - this.height;
+    } else if (next_y < 0) {
       this.dy = 0;
       this.y = 0;
-    }  
+    } else {
+      this.x = next_x;
+      this.y = next_y;
+    }
   }
 
   ////////// COMPUTER PADDLE FUNCTIONS ////////
 
   comp = new Paddle();
 
-  comp.predict = function() {
-    if (ball.y > this.y + (PADDLE_HEIGHT / 2) && ball.dx < 0) {
-      this.dy = 1;
-    } else if (ball.y < this.y + (PADDLE_HEIGHT / 2) && ball.dx < 0) {
-      this.dy = -1;
+  comp.update = function() {
+
+    // if the ball is moving towards comp, move comp to the predicted point
+    if (ball.dx < 0) {
+      if (this.prediction > this.y + (this.height / 2) + 3) {
+        this.dy = 1;
+      } else if (this.prediction < this.y + (this.height / 2) - 3) {
+        this.dy = -1;
+      } else {
+        this.dy = 0;
+      }
+    // otherwise, move comp to the center
     } else {
-      this.dy = 0;
+      if (this.y + (this.height / 2) < (HEIGHT / 2) - 3)
+        this.dy = 1;
+      else if (this.y + (this.height / 2) > HEIGHT / 2 + 3)
+        this.dy = -1;
+      else
+        this.dy = 0;
     }
+
+    var next_x = this.x + this.dx * this.speed;
+    var next_y = this.y + this.dy * this.speed;
+
+    // if movement takes the computer outside the canvas, put it back
+    if (next_y > HEIGHT - this.height) {
+      this.dy = 0;
+      this.y = HEIGHT - this.height;
+    } else if (next_y < 0) {
+      this.dy = 0;
+      this.y = 0;
+    } else {
+      this.x = next_x;
+      this.y = next_y;
+    }
+  }
+
+  comp.predict = function() {
+
+    function mod(y) {
+      var frames = 0;
+      if (y < 0) {
+        while (y < 0) {
+          y += HEIGHT;
+          frames += 1;
+        }
+        if (frames % 2 == 1)
+          y = HEIGHT - y;
+      } else if (y > HEIGHT) {
+        while (y > HEIGHT) {
+          y -= HEIGHT;
+          frames += 1;
+        }
+        if (frames % 2 == 1)
+          y = HEIGHT - y;
+      }
+
+      return y;
+    }
+
+    this.prediction = mod(ball.y + -1 * (ball.x - this.x) * ball.dy / ball.dx);
   }
 
   //////////// BALL CONTRUCTOR / FUNCTIONS ///////////
@@ -85,12 +154,7 @@
     this.y;
     this.dx;
     this.dy;
-    this.speed = BALL_SPEED;
-  }
-
-  Ball.prototype.move = function() {
-    this.x += this.dx * this.speed;
-    this.y += this.dy * this.speed;
+    this.speed;
   }
 
   Ball.prototype.draw = function() {
@@ -101,11 +165,64 @@
     ctx.stroke();
   }
 
-  Ball.prototype.reset = function(x, y) {
-    this.x = x;
-    this.y = y;
-    this.dx = 1;
-    this.dy = 1;
+  function intersect(p0_x, p0_y, p1_x, p1_y, p2_x, p2_y, p3_x, p3_y) {
+    var s1_x, s1_y, s2_x, s2_y;
+    s1_x = p1_x - p0_x;
+    s1_y = p1_y - p0_y;
+    s2_x = p3_x - p2_x;
+    s2_y = p3_y - p2_y;
+ 
+    var s, t;
+    s = (-s1_y * (p0_x - p2_x) + s1_x * (p0_y - p2_y)) / (-s2_x * s1_y + s1_x * s2_y);
+    t = ( s2_x * (p0_y - p2_y) - s2_y * (p0_x - p2_x)) / (-s2_x * s1_y + s1_x * s2_y);
+ 
+    return (s >= 0 && s <= 1 && t >= 0 && t <= 1);
+  }
+
+  Ball.prototype.update = function() {
+    var next_x = this.x + this.dx * this.speed;
+    var next_y = this.y + this.dy * this.speed;
+
+    // handle top/bottom collisions
+    if (next_y > HEIGHT - BALL_RADIUS) {
+      ball.dy *= -1;   
+    } else if (next_y < BALL_RADIUS) {
+      ball.dy *= -1;
+    } 
+
+    // handle user-paddle collisions
+    if (intersect(this.x, this.y, next_x, next_y, user.x, user.y, user.x, user.y + user.height)) {
+  
+      this.dx *= -1 * BALL_SPEED_INCREASE;
+
+      if (user.height < HEIGHT) {
+        user.y -= user.height * (USER_HEIGHT_INCREASE - 1) / 2;
+        user.height *= USER_HEIGHT_INCREASE; 
+        user.speed *= USER_SPEED_INCREASE;
+      }
+
+      if (user.dy != 0) {
+        if (user.dy < 0 && this.dy < 0 || user.dy > 0 && this.dy > 0) {
+          this.dy *= BALL_ANGLE_INCREASE;
+        } else {
+          this.dy *= BALL_ANGLE_DECREASE;
+        }
+      }
+
+      next_x = this.x + this.dx * this.speed;
+      next_y = this.y + this.dy * this.speed;
+
+      comp.predict();
+    }
+
+    // handle comp-paddle collisions
+    if (intersect(this.x, this.y, next_x, next_y, comp.x + PADDLE_WIDTH, comp.y, comp.x + comp.width, comp.y + comp.height)) {
+      this.dx *= -1;
+      next_x = this.x + this.dx * this.speed;
+    }   
+
+    this.x = next_x;
+    this.y = next_y;
   }
 
   ball = new Ball();
@@ -127,11 +244,11 @@
     window.msRequestAnimationFrame;
 
   function startGame() {
+    resetElements();
     RAF = requestAnimationFrame(loop);    
   }
 
   function stopGame() {
-    ball.reset(WIDTH / 2, HEIGHT / 2);
   }
 
   function clearCanvas() {
@@ -146,54 +263,41 @@
   }
 
   function resetElements() {
-    ball.reset(WIDTH / 2, HEIGHT / 2);
+
     user.reset(WIDTH - 10 - PADDLE_WIDTH, (HEIGHT / 2) - (PADDLE_HEIGHT / 2));
-    comp.reset(10, (HEIGHT / 2) - (PADDLE_HEIGHT / 2));   
+    comp.reset(10, (HEIGHT / 2) - (PADDLE_HEIGHT / 2)); 
+
+    ball.x = WIDTH / 2;
+    ball.y = HEIGHT / 2;
+    ball.speed = BALL_SPEED;
+
+    ball.dx = Math.floor(Math.random() * 2) == 1 ? 1 : -1;
+    ball.dy = Math.floor(Math.random() * 2) == 1 ? 1 : -1;
+    if (ball.dx == -1)
+      comp.predict();
   }
 
   function loop() {
 
     clearCanvas();
 
-    user.draw();
-    user.move();
     user.update();
+    user.draw();
 
+    comp.update();
     comp.draw();
-    comp.predict();
-    comp.move();
 
+    ball.update();
     ball.draw();
-    ball.move();
 
-    // detect ball collision with top or bottom
-    if (ball.y > HEIGHT - BALL_RADIUS) {
-      ball.dy *= -1;
-    } else if (ball.y < BALL_RADIUS) {
-      ball.dy *= -1;
-    }
-
-    // detect ball/user collision
-    if (ball.y > user.y && ball.y < user.y + PADDLE_HEIGHT && ball.x + BALL_RADIUS > user.x) {
-      if (user.dy == 0) {
-        ball.dx = -1;
-      } else {
-        ball.dx = -1;
-        ball.dy *= 1.2;
-      }
-    }
-
-    // detect ball/comp collision
-    if (ball.y > comp.y && ball.y < comp.y + PADDLE_HEIGHT && ball.x - BALL_RADIUS < comp.x + PADDLE_WIDTH)
-      ball.dx = 1;
+   //ctx.fillStyle = "red";
+   //ctx.fillRect(10, (comp.prediction || 0) - 5, 10, 10);
 
     // detect points
     if (ball.x > WIDTH + BALL_RADIUS * 2) {
-      //detect point for computer
-      stopGame();
+      stopGame(); // computer point
     } else if (ball.x < -2 * BALL_RADIUS) {
-      //detect point for user
-      stopGame();
+      stopGame(); // user point
     } else {
       RAF = requestAnimationFrame(loop);
     }
@@ -212,14 +316,6 @@
     }
 
     function updateDirection() {
-      if (map[37]) {
-        user.dx = -1;
-      } else if (map[39]) {
-        user.dx = 1;
-      } else {
-        user.dx = 0;
-      }
-
       if (map[38]) {
         user.dy = -1;
       } else if (map[40]) {
@@ -227,6 +323,14 @@
       } else {
         user.dy = 0;
       }
+
+      /*if (map[37]) {
+        user.dx = -1;
+      } else if (map[39]) {
+        user.dx = 1;
+      } else {
+        user.dx = 0;
+      }*/
     }
 
   })();
@@ -234,10 +338,10 @@
   //////////////// MAIN ///////////////////
 
   createCanvas();
-  resetElements();
-
-  canvas.onclick = function() { startGame(); };
-
   startGame();
+
+  canvas.onclick = function() { 
+    startGame(); 
+  };
 
 })();
